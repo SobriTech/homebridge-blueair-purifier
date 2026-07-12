@@ -36,9 +36,7 @@ export class AirPurifierAccessory {
 
     const targetStateCharacteristic = this.service.getCharacteristic(this.platform.Characteristic.TargetAirPurifierState);
     if (this.device.state.automode !== undefined) {
-      targetStateCharacteristic
-        .onGet(this.getTargetAirPurifierState.bind(this))
-        .onSet(this.setTargetAirPurifierState.bind(this));
+      targetStateCharacteristic.onGet(this.getTargetAirPurifierState.bind(this)).onSet(this.setTargetAirPurifierState.bind(this));
     } else {
       targetStateCharacteristic
         .setProps({
@@ -60,9 +58,7 @@ export class AirPurifierAccessory {
         minStep: 1,
       });
     }
-    rotationSpeedCharacteristic
-      .onGet(this.getRotationSpeed.bind(this))
-      .onSet(this.setRotationSpeed.bind(this));
+    rotationSpeedCharacteristic.onGet(this.getRotationSpeed.bind(this)).onSet(this.setRotationSpeed.bind(this));
 
     this.filterMaintenanceService =
       this.accessory.getService(this.platform.Service.FilterMaintenance) ||
