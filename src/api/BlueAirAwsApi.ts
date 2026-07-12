@@ -28,6 +28,7 @@ export type BlueAirDeviceState = {
   automode?: boolean;
   ofv?: string;
   brightness?: number;
+  nlstepless?: number;
   safetyswitch?: boolean;
   filterusage?: number;
   disinfection?: boolean;

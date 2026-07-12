@@ -8,6 +8,7 @@ export class AirPurifierAccessory {
   private service: Service;
   private filterMaintenanceService?: Service;
   private ledService?: Service;
+  private nightLightService?: Service;
   private airQualityService?: Service;
   private temperatureService?: Service;
   private germShieldService?: Service;
@@ -33,18 +34,33 @@ export class AirPurifierAccessory {
 
     this.service.getCharacteristic(this.platform.Characteristic.CurrentAirPurifierState).onGet(this.getCurrentAirPurifierState.bind(this));
 
-    this.service
-      .getCharacteristic(this.platform.Characteristic.TargetAirPurifierState)
-      .onGet(this.getTargetAirPurifierState.bind(this))
-      .onSet(this.setTargetAirPurifierState.bind(this));
+    const targetStateCharacteristic = this.service.getCharacteristic(this.platform.Characteristic.TargetAirPurifierState);
+    if (this.device.state.automode !== undefined) {
+      targetStateCharacteristic
+        .onGet(this.getTargetAirPurifierState.bind(this))
+        .onSet(this.setTargetAirPurifierState.bind(this));
+    } else {
+      targetStateCharacteristic
+        .setProps({
+          validValues: [this.platform.Characteristic.TargetAirPurifierState.MANUAL],
+        })
+        .onGet(() => this.platform.Characteristic.TargetAirPurifierState.MANUAL);
+    }
 
     this.service
       .getCharacteristic(this.platform.Characteristic.LockPhysicalControls)
       .onGet(this.getLockPhysicalControls.bind(this))
       .onSet(this.setLockPhysicalControls.bind(this));
 
-    this.service
-      .getCharacteristic(this.platform.Characteristic.RotationSpeed)
+    const rotationSpeedCharacteristic = this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed);
+    if (this.isMiniRestful()) {
+      rotationSpeedCharacteristic.setProps({
+        minValue: 0,
+        maxValue: 100,
+        minStep: 1,
+      });
+    }
+    rotationSpeedCharacteristic
       .onGet(this.getRotationSpeed.bind(this))
       .onSet(this.setRotationSpeed.bind(this));
 
@@ -70,6 +86,28 @@ export class AirPurifierAccessory {
         .onSet(this.setLedBrightness.bind(this));
     } else if (this.ledService) {
       this.accessory.removeService(this.ledService);
+    }
+
+    this.nightLightService = this.accessory.getServiceById(this.platform.Service.Lightbulb, 'NightLight');
+    if (this.isMiniRestful()) {
+      this.nightLightService ??= this.accessory.addService(
+        this.platform.Service.Lightbulb,
+        `${this.device.name} Night Light`,
+        'NightLight',
+      );
+      this.nightLightService.setCharacteristic(this.platform.Characteristic.Name, `${this.device.name} Night Light`);
+      this.nightLightService.setCharacteristic(this.platform.Characteristic.ConfiguredName, `${this.device.name} Night Light`);
+      this.nightLightService
+        .getCharacteristic(this.platform.Characteristic.On)
+        .onGet(this.getNightLightOn.bind(this))
+        .onSet(this.setNightLightOn.bind(this));
+      this.nightLightService
+        .getCharacteristic(this.platform.Characteristic.Brightness)
+        .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
+        .onGet(this.getNightLightBrightness.bind(this))
+        .onSet(this.setNightLightBrightness.bind(this));
+    } else if (this.nightLightService) {
+      this.accessory.removeService(this.nightLightService);
     }
 
     this.airQualityService = this.accessory.getServiceById(this.platform.Service.AirQualitySensor, 'AirQuality');
@@ -161,6 +199,10 @@ export class AirPurifierAccessory {
           this.ledService?.updateCharacteristic(this.platform.Characteristic.On, this.getLedOn());
           this.ledService?.updateCharacteristic(this.platform.Characteristic.Brightness, this.getLedBrightness());
           break;
+        case 'nlstepless':
+          this.nightLightService?.updateCharacteristic(this.platform.Characteristic.On, this.getNightLightOn());
+          this.nightLightService?.updateCharacteristic(this.platform.Characteristic.Brightness, this.getNightLightBrightness());
+          break;
         case 'pm25':
           this.airQualityService?.updateCharacteristic(this.platform.Characteristic.PM2_5Density, this.getPM2_5Density());
           updateAirQuality = true;
@@ -238,14 +280,61 @@ export class AirPurifierAccessory {
     await this.device.setState('childlock', value === this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED);
   }
 
+  private isMiniRestful(): boolean {
+    return this.device.state.nlstepless !== undefined;
+  }
+
+  private miniRestfulFanSpeedToHomeKit(deviceSpeed: number): number {
+    if (deviceSpeed <= 0) {
+      return 0;
+    }
+    if (deviceSpeed < 31) {
+      return 33;
+    }
+    if (deviceSpeed < 71) {
+      return 66;
+    }
+    return 100;
+  }
+
+  private homeKitFanSpeedToMiniRestful(homeKitSpeed: number): number {
+    if (homeKitSpeed <= 33) {
+      return 11;
+    }
+    if (homeKitSpeed <= 66) {
+      return 51;
+    }
+    return 91;
+  }
+
   getRotationSpeed(): CharacteristicValue {
-    return this.device.state.standby === false ? this.device.state.fanspeed || 0 : 0;
+    if (this.device.state.standby !== false) {
+      return 0;
+    }
+
+    const deviceSpeed = this.device.state.fanspeed || 0;
+    return this.isMiniRestful() ? this.miniRestfulFanSpeedToHomeKit(deviceSpeed) : deviceSpeed;
   }
 
   async setRotationSpeed(value: CharacteristicValue) {
     this.platform.log.debug(`[${this.device.name}] Setting rotation speed to ${value}`);
 
     const speed = value as number;
+    if (this.isMiniRestful()) {
+      if (speed <= 0) {
+        await this.device.setState('standby', true);
+        return;
+      }
+
+      if (this.device.state.standby === true) {
+        await this.device.setState('standby', false);
+      }
+
+      // Mini Restful uses raw fan values 11, 51, and 91 for its three running speeds.
+      await this.device.setState('fanspeed', this.homeKitFanSpeedToMiniRestful(speed));
+      return;
+    }
+
     if (speed > 0 && this.device.state.standby === true) {
       await this.device.setState('standby', false);
     }
@@ -287,6 +376,24 @@ export class AirPurifierAccessory {
   async setLedBrightness(value: CharacteristicValue) {
     this.platform.log.debug(`[${this.device.name}] Setting LED brightness to ${value}`);
     await this.device.setState('brightness', value as number);
+  }
+
+  getNightLightOn(): CharacteristicValue {
+    return (this.device.state.nlstepless || 0) > 0;
+  }
+
+  async setNightLightOn(value: CharacteristicValue) {
+    this.platform.log.debug(`[${this.device.name}] Setting night light on to ${value}`);
+    await this.device.setNightLightOn(value as boolean);
+  }
+
+  getNightLightBrightness(): CharacteristicValue {
+    return this.device.state.nlstepless || 0;
+  }
+
+  async setNightLightBrightness(value: CharacteristicValue) {
+    this.platform.log.debug(`[${this.device.name}] Setting night light brightness to ${value}`);
+    await this.device.setState('nlstepless', value as number);
   }
 
   getPM2_5Density(): CharacteristicValue {

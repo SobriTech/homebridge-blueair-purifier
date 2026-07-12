@@ -65,6 +65,7 @@ export class BlueAirDevice extends EventEmitter {
   private currentChanges: PendingChanges;
 
   private last_brightness: number;
+  private last_night_light_brightness: number;
 
   constructor(device: BlueAirDeviceStatus) {
     super();
@@ -85,6 +86,7 @@ export class BlueAirDevice extends EventEmitter {
     };
 
     this.last_brightness = this.state.brightness || 0;
+    this.last_night_light_brightness = this.state.nlstepless || 100;
 
     this.on('update', this.updateState.bind(this));
   }
@@ -156,6 +158,16 @@ export class BlueAirDevice extends EventEmitter {
     }
     const brightness = value ? this.last_brightness : 0;
     await this.setState('brightness', brightness);
+  }
+
+  public async setNightLightOn(value: boolean) {
+    const currentBrightness = this.state.nlstepless || 0;
+    if (!value && currentBrightness > 0) {
+      this.last_night_light_brightness = currentBrightness;
+    }
+
+    const brightness = value ? this.last_night_light_brightness : 0;
+    await this.setState('nlstepless', brightness);
   }
 
   private async updateState(newState: BlueAirDeviceStatus) {
