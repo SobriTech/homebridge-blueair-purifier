@@ -1,27 +1,17 @@
 {
-  "displayName": "Homebridge BlueAir Platform",
-  "name": "homebridge-blueair-purifier",
-  "version": "1.1.1",
-  "description": "Homebridge plugin for BlueAir purifiers",
+  "displayName": "Homebridge BlueAir Mini Restful",
+  "name": "homebridge-blueair-mini-restful",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for Blueair purifiers, including Mini Restful fan and night-light controls",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kovapatrik/homebridge-blueair-purifier.git"
+    "url": "git+https://github.com/SobriTech/homebridge-blueair-purifier.git"
   },
-  "homepage": "https://github.com/kovapatrik/homebridge-blueair-purifier#readme",
+  "homepage": "https://github.com/SobriTech/homebridge-blueair-purifier#readme",
   "bugs": {
-    "url": "https://github.com/kovapatrik/homebridge-blueair-purifier/issues"
+    "url": "https://github.com/SobriTech/homebridge-blueair-purifier/issues"
   },
-  "funding": [
-    {
-      "type": "github",
-      "url": "https://github.com/sponsors/kovapatrik"
-    },
-    {
-      "type": "buymeacoffee",
-      "url": "https://www.buymeacoffee.com/kovapatrik"
-    }
-  ],
   "engines": {
     "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
     "homebridge": "^1.8.0 || ^2.0.0-beta.0"
