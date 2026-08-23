@@ -13,6 +13,13 @@
 - Automatically retry initial device-state loading after rate limiting.
 - Update Homebridge settings and installation documentation.
 
+## 1.0.0 (2026-07-12)
+
+- Add Blueair Mini Restful device detection and three-speed fan mapping.
+- Add HomeKit night-light on/off and brightness controls.
+- Support devices without automatic mode by exposing manual mode only.
+- Publish the plugin as `homebridge-blueair-mini-restful`.
+
 # v1.1.0
 ## [1.1.1](https://github.com/kovapatrik/homebridge-blueair-purifier/compare/v1.1.0...v1.1.1) (2026-06-30)
 
