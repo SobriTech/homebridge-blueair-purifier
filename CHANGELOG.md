@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.1 (2026-08-22)
+## 1.2.1 (2026-08-22)
 
 - Increase the default and minimum polling interval to 60 seconds.
 - Handle BlueAir API HTTP 429 responses and honor the `Retry-After` header.
