@@ -2,22 +2,23 @@
   <a href="https://github.com/homebridge/verified/blob/master/verified-plugins.json"><img alt="Homebridge Verified" src="./branding/Homebridge_x_Blueair.svg" width="500px"></a>
 </p>
 
-# homebridge-blueair-purifier
+# homebridge-blueair-mini-restful
 
 [![verified-by-homebridge](https://badgen.net/badge/homebridge/verified/purple)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
-[![npm](https://badgen.net/npm/v/homebridge-blueair-purifier)](https://www.npmjs.com/package/homebridge-blueair-purifier)
-[![npm](https://badgen.net/npm/dt/homebridge-blueair-purifier?label=downloads)](https://www.npmjs.com/package/homebridge-blueair-purifier)
+[![npm](https://badgen.net/npm/v/homebridge-blueair-mini-restful)](https://www.npmjs.com/package/homebridge-blueair-mini-restful)
+[![npm](https://badgen.net/npm/dt/homebridge-blueair-mini-restful?label=downloads)](https://www.npmjs.com/package/homebridge-blueair-mini-restful)
 
 ## Installation
 
 **Option 1: Install via Homebridge Config UI X:**
 
-Search for "Blueair Purifier" in in [homebridge-config-ui-x](https://github.com/oznu/homebridge-config-ui-x) and install `homebridge-blueair-purifier`.
+Search for "BlueAir Mini Restful" in [homebridge-config-ui-x](https://github.com/oznu/homebridge-config-ui-x) and install
+`homebridge-blueair-mini-restful`.
 
 **Option 2: Manually Install:**
 
 ```text
-sudo npm install -g homebridge-blueair-purifier
+sudo npm install -g homebridge-blueair-mini-restful
 ```
 
 ## Supported Devices

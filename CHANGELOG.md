@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 (2026-08-22)
+
+- Increase the default and minimum polling interval to 60 seconds.
+- Handle BlueAir API HTTP 429 responses and honor the `Retry-After` header.
+- Retry failed API requests with exponential backoff without deadlocking the request mutex.
+- Automatically retry initial device-state loading after rate limiting.
+- Update Homebridge settings and installation documentation.
+
 # v1.1.0
 ## [1.1.1](https://github.com/kovapatrik/homebridge-blueair-purifier/compare/v1.1.0...v1.1.1) (2026-06-30)
 

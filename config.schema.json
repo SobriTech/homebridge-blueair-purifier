@@ -52,8 +52,10 @@
       },
       "pollingInterval": {
         "title": "Polling Interval",
-        "description": "Interval in miliseconds to poll the BlueAir API for updates. It's recommended to keep this at least 15 seconds (15000 miliseconds).",
-        "type": "number"
+        "description": "Interval in milliseconds between BlueAir API updates. The default and minimum are 60 seconds (60000 milliseconds) to reduce the risk of API rate limiting.",
+        "type": "number",
+        "default": 60000,
+        "minimum": 60000
       },
       "devices": {
         "title": "Devices",

@@ -72,6 +72,36 @@ export const BlueAirDeviceSensorDataMap: Record<string, keyof BlueAirDeviceSenso
   tVOC: 'voc',
 };
 
+export class BlueAirApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status?: number,
+    public readonly retryAfterMs?: number,
+  ) {
+    super(message);
+    this.name = 'BlueAirApiError';
+  }
+}
+
+const RETRY_BASE_DELAY_MS = 1000;
+const RETRY_MAX_DELAY_MS = 60000;
+
+const sleep = (delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+
+const getRetryAfterMs = (retryAfter: string | null): number | undefined => {
+  if (!retryAfter) {
+    return undefined;
+  }
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+
+  const retryAt = Date.parse(retryAfter);
+  return Number.isNaN(retryAt) ? undefined : Math.max(0, retryAt - Date.now());
+};
+
 export default class BlueAirAwsApi {
   private readonly gigyaApi: GigyaApi;
 
@@ -238,41 +268,66 @@ export default class BlueAirAwsApi {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async apiCall<T = any>(url: string, data?: string | object, method = 'POST', headers?: object, retries = 3): Promise<T> {
-    const release = await this.mutex.acquire();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), BLUEAIR_API_TIMEOUT);
-    try {
-      const response = await fetch(`${this.blueAirApiUrl}${url}`, {
-        method: method,
-        headers: {
-          Accept: '*/*',
-          Connection: 'keep-alive',
-          'Accept-Encoding': 'gzip, deflate, br',
-          Authorization: `Bearer ${this.accessToken}`,
-          idtoken: this.idToken || this.accessToken,
-          ...headers,
-        },
-        body: JSON.stringify(data),
-        signal: controller.signal,
-      });
-      const json = await response.json();
-      if (response.status !== 200) {
-        throw new Error(`API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`);
-      }
-      return json as T;
-    } catch (error) {
-      if (retries > 0) {
-        return this.apiCall(url, data, method, headers, retries - 1);
-      } else {
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error(`API call failed after ${3 - retries} retries with timeout.`);
-        } else {
-          throw new Error(`API call failed after ${3 - retries} retries with error: ${error}`);
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const release = await this.mutex.acquire();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), BLUEAIR_API_TIMEOUT);
+
+      try {
+        const response = await fetch(`${this.blueAirApiUrl}${url}`, {
+          method: method,
+          headers: {
+            Accept: '*/*',
+            Connection: 'keep-alive',
+            'Accept-Encoding': 'gzip, deflate, br',
+            Authorization: `Bearer ${this.accessToken}`,
+            idtoken: this.idToken || this.accessToken,
+            ...headers,
+          },
+          body: JSON.stringify(data),
+          signal: controller.signal,
+        });
+        const responseText = await response.text();
+        let responseBody: unknown = responseText;
+        try {
+          responseBody = responseText ? JSON.parse(responseText) : undefined;
+        } catch {
+          // Some BlueAir errors return plain text or an empty body.
         }
+        if (response.status !== 200) {
+          throw new BlueAirApiError(
+            `API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(responseBody)}`,
+            response.status,
+            getRetryAfterMs(response.headers.get('retry-after')),
+          );
+        }
+        return responseBody as T;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timeout);
+        release();
       }
-    } finally {
-      clearTimeout(timeout);
-      release();
+
+      if (attempt < retries) {
+        const exponentialDelay = Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
+        const retryAfterMs = lastError instanceof BlueAirApiError && lastError.status === 429 ? lastError.retryAfterMs : undefined;
+        const delayMs = Math.min(Math.max(retryAfterMs ?? exponentialDelay, exponentialDelay), RETRY_MAX_DELAY_MS);
+        const failureReason =
+          lastError instanceof BlueAirApiError && lastError.status === 429 ? 'BlueAir API rate limit reached' : 'BlueAir API call failed';
+        this.logger.warn(`${failureReason}; retrying in ${Math.ceil(delayMs / 1000)} second(s) (attempt ${attempt + 2}/${retries + 1}).`);
+        await sleep(delayMs);
+      }
     }
+
+    if (lastError instanceof BlueAirApiError) {
+      throw lastError;
+    }
+    if (lastError instanceof Error && lastError.name === 'AbortError') {
+      throw new BlueAirApiError(`API call failed after ${retries + 1} attempts with timeout.`);
+    }
+    throw new BlueAirApiError(`API call failed after ${retries + 1} attempts with error: ${lastError}`);
   }
 }
