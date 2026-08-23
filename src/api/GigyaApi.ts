@@ -1,6 +1,27 @@
 import { Logger } from 'homebridge';
-import { getGigyaConfig } from './Consts';
+import { BLUEAIR_API_TIMEOUT, getGigyaConfig } from './Consts';
 import { Region } from '../platformUtils';
+
+class GigyaApiError extends Error {
+  constructor(
+    message: string,
+    public readonly retryAfterMs?: number,
+  ) {
+    super(message);
+  }
+}
+
+const getRetryAfterMs = (retryAfter: string | null): number | undefined => {
+  if (!retryAfter) {
+    return undefined;
+  }
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+  const retryAt = Date.parse(retryAfter);
+  return Number.isNaN(retryAt) ? undefined : Math.max(0, retryAt - Date.now());
+};
 
 export default class GigyaApi {
   private api_key: string;
@@ -62,31 +83,48 @@ export default class GigyaApi {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async apiCall(url: string, data: string, retries = 3): Promise<any> {
-    const controller = new AbortController();
-    try {
-      const response = await fetch(`${this.gigyaApiUrl}${url}?${data}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: '*/*',
-          Connection: 'keep-alive',
-          'Accept-Encoding': 'gzip, deflate, br',
-        },
-        signal: controller.signal,
-      });
-      const json = await response.json();
-      if (response.status !== 200) {
-        throw new Error(`API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`);
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), BLUEAIR_API_TIMEOUT);
+
+      try {
+        const response = await fetch(`${this.gigyaApiUrl}${url}?${data}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Accept: '*/*',
+            Connection: 'keep-alive',
+            'Accept-Encoding': 'gzip, deflate, br',
+          },
+          signal: controller.signal,
+        });
+        const json = await response.json();
+        if (response.status !== 200) {
+          throw new GigyaApiError(
+            `API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`,
+            response.status === 429 ? getRetryAfterMs(response.headers.get('retry-after')) : undefined,
+          );
+        }
+        return json;
+      } catch (error) {
+        lastError = error;
+      } finally {
+        clearTimeout(timeout);
       }
-      return json;
-    } catch (error) {
-      this.logger.error(`API call failed: ${error}`);
-      if (retries > 0) {
-        this.logger.debug(`Retrying API call (${retries} retries left)...`);
-        return this.apiCall(url, data, retries - 1);
-      } else {
-        throw new Error(`API call failed after ${retries} retries`);
+
+      if (attempt < retries) {
+        const exponentialDelay = Math.min(1000 * 2 ** attempt, 60000);
+        const delayMs =
+          lastError instanceof GigyaApiError && lastError.retryAfterMs !== undefined
+            ? Math.max(lastError.retryAfterMs, exponentialDelay)
+            : exponentialDelay;
+        this.logger.warn(`Gigya API call failed; retrying in ${delayMs / 1000} second(s) (attempt ${attempt + 2}/${retries + 1}).`);
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       }
     }
+
+    throw new Error(`Gigya API call failed after ${retries + 1} attempts: ${lastError}`);
   }
 }

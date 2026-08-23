@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 (2026-08-23)
+
+- Add request timeouts and exponential retry backoff to Gigya authentication.
+- Honor Blueair API `Retry-After` values longer than 60 seconds.
+
 ## 1.0.1 (2026-08-22)
 
 - Increase the default and minimum polling interval to 60 seconds.

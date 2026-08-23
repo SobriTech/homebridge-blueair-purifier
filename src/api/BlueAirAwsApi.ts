@@ -314,7 +314,7 @@ export default class BlueAirAwsApi {
       if (attempt < retries) {
         const exponentialDelay = Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
         const retryAfterMs = lastError instanceof BlueAirApiError && lastError.status === 429 ? lastError.retryAfterMs : undefined;
-        const delayMs = Math.min(Math.max(retryAfterMs ?? exponentialDelay, exponentialDelay), RETRY_MAX_DELAY_MS);
+        const delayMs = retryAfterMs === undefined ? exponentialDelay : Math.max(retryAfterMs, exponentialDelay);
         const failureReason =
           lastError instanceof BlueAirApiError && lastError.status === 429 ? 'BlueAir API rate limit reached' : 'BlueAir API call failed';
         this.logger.warn(`${failureReason}; retrying in ${Math.ceil(delayMs / 1000)} second(s) (attempt ${attempt + 2}/${retries + 1}).`);
