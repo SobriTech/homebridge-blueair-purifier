@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1 (2026-11-01)
+
+- Persist removal of stale cached Mini Restful Lightbulb services so the generic unresponsive `Light` tile does not return after restarting Homebridge.
+
 ## 1.1.0 (2026-11-01)
 
 - Selectively port upstream compatibility fixes, including device SKU typing and model-specific automatic-mode handling.
