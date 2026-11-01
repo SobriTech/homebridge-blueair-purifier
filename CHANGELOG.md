@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0 (2026-11-01)
+
+- Selectively port upstream compatibility fixes, including device SKU typing and model-specific automatic-mode handling.
+- Classify SKU `113836` and devices exposing `nlstepless` as Mini Restful while preserving fan values `11`/`51`/`91` and night-light behavior.
+- Remove stale cached HomeKit light services from Mini Restful accessories while preserving the Night Light and an explicitly enabled LED.
+- Persist custom-UI settings on Save and clean empty objects from device arrays.
+- Treat Blueair HTTP 229 and 429 responses as rate limits with `Retry-After` support and slower exponential backoff.
+- Correct PM2.5 change handling and update air-quality, filter, and temperature characteristics through their proper HomeKit services.
+- Clamp filter life to the HomeKit 0–100 range.
+- Remove sensitive environment, configuration, username, and authentication-payload logging.
+- Add restricted Blue 40/SP4i telemetry fallback when normal data lacks AQ readings and the device advertises AQ sensors.
+
 ## 1.0.2 (2026-08-23)
 
 - Add request timeouts and exponential retry backoff to Gigya authentication.

@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import { BlueAirDeviceSensorData, BlueAirDeviceState, BlueAirDeviceStatus, FullBlueAirDeviceState } from '../api/BlueAirAwsApi';
+import { BlueAirDeviceType, getDeviceType } from './BlueAirDeviceType';
 import { Mutex } from 'async-mutex';
 
 type AQILevels = {
@@ -59,6 +60,8 @@ export class BlueAirDevice extends EventEmitter {
 
   public readonly id: string;
   public readonly name: string;
+  public readonly sku: string;
+  public readonly deviceType: BlueAirDeviceType;
 
   private mutex: Mutex;
 
@@ -71,6 +74,8 @@ export class BlueAirDevice extends EventEmitter {
     super();
     this.id = device.id;
     this.name = device.name;
+    this.sku = device.sku;
+    this.deviceType = device.state.nlstepless !== undefined ? BlueAirDeviceType.MINI_RESTFUL : getDeviceType(device.sku);
 
     this.state = device.state;
     this.sensorData = {
@@ -95,7 +100,7 @@ export class BlueAirDevice extends EventEmitter {
     return Object.keys(changes.state).length > 0 || Object.keys(changes.sensorData).length > 0;
   }
 
-  private async notifyStateUpdate(newState?: Partial<BlueAirDeviceState>, newSensorData?: Partial<BlueAirDeviceSensorData>) {
+  private async notifyStateUpdate(newState?: Partial<BlueAirDeviceState>, newSensorData?: Partial<BlueAirSensorDataWithAqi>) {
     this.currentChanges = {
       state: {
         ...this.currentChanges.state,
@@ -173,6 +178,7 @@ export class BlueAirDevice extends EventEmitter {
   private async updateState(newState: BlueAirDeviceStatus) {
     const changedState: Partial<BlueAirDeviceState> = {};
     const changedSensorData: Partial<BlueAirSensorDataWithAqi> = {};
+    let airQualityChanged = false;
 
     for (const [k, v] of Object.entries(newState.state)) {
       if (this.state[k] !== v) {
@@ -182,22 +188,25 @@ export class BlueAirDevice extends EventEmitter {
     for (const [k, v] of Object.entries(newState.sensorData)) {
       if (this.sensorData[k] !== v) {
         changedSensorData[k] = v;
-        if (k === 'pm25' || k === 'pm10' || k === 'voc') {
-          changedSensorData.aqi = this.calculateAqi();
+        if (k === 'pm2_5' || k === 'pm10' || k === 'voc') {
+          airQualityChanged = true;
         }
       }
+    }
+    if (airQualityChanged) {
+      changedSensorData.aqi = this.calculateAqi({ ...this.sensorData, ...changedSensorData });
     }
     await this.notifyStateUpdate(changedState, changedSensorData);
   }
 
-  private calculateAqi(): number | undefined {
-    if (this.sensorData.pm2_5 === undefined && this.sensorData.pm10 === undefined && this.sensorData.voc === undefined) {
+  private calculateAqi(sensorData: BlueAirSensorDataWithAqi = this.sensorData): number | undefined {
+    if (sensorData.pm2_5 === undefined && sensorData.pm10 === undefined && sensorData.voc === undefined) {
       return undefined;
     }
 
-    const pm2_5 = Math.round((this.sensorData.pm2_5 || 0) * 10) / 10;
-    const pm10 = this.sensorData.pm10 || 0;
-    const voc = this.sensorData.voc || 0;
+    const pm2_5 = Math.round((sensorData.pm2_5 || 0) * 10) / 10;
+    const pm10 = sensorData.pm10 || 0;
+    const voc = sensorData.voc || 0;
 
     const aqi_pm2_5 = this.calculateAqiForSensor(pm2_5, 'PM2_5');
     const aqi_pm10 = this.calculateAqiForSensor(pm10, 'PM10');

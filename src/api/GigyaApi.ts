@@ -5,6 +5,7 @@ import { Region } from '../platformUtils';
 class GigyaApiError extends Error {
   constructor(
     message: string,
+    public readonly status?: number,
     public readonly retryAfterMs?: number,
   ) {
     super(message);
@@ -35,7 +36,7 @@ export default class GigyaApi {
   ) {
     const config = getGigyaConfig(region);
 
-    this.logger.debug(`Creating Gigya API instance with config: ${JSON.stringify(config)} and username: ${username} and region: ${region}`);
+    this.logger.debug(`Creating Gigya API instance for region ${region}`);
 
     this.api_key = config.apiKey;
     this.gigyaApiUrl = `https://accounts.${config.gigyaRegion}.gigya.com`;
@@ -52,7 +53,7 @@ export default class GigyaApi {
     const response = await this.apiCall('/accounts.login', params.toString());
 
     if (!response.sessionInfo) {
-      throw new Error(`Gigya session error: sessionInfo in response: ${JSON.stringify(response)}`);
+      throw new Error('Gigya session error: response did not include sessionInfo');
     }
 
     this.logger.debug('Gigya session received');
@@ -72,7 +73,7 @@ export default class GigyaApi {
     const response = await this.apiCall('/accounts.getJWT', params.toString());
 
     if (!response.id_token) {
-      throw new Error(`Gigya JWT error: no id_token in response: ${JSON.stringify(response)}`);
+      throw new Error('Gigya JWT error: response did not include id_token');
     }
 
     this.logger.debug('Gigya JWT received');
@@ -103,8 +104,9 @@ export default class GigyaApi {
         const json = await response.json();
         if (response.status !== 200) {
           throw new GigyaApiError(
-            `API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`,
-            response.status === 429 ? getRetryAfterMs(response.headers.get('retry-after')) : undefined,
+            `API call error with status ${response.status}: ${response.statusText}`,
+            response.status,
+            response.status === 229 || response.status === 429 ? getRetryAfterMs(response.headers.get('retry-after')) : undefined,
           );
         }
         return json;
@@ -116,10 +118,13 @@ export default class GigyaApi {
 
       if (attempt < retries) {
         const exponentialDelay = Math.min(1000 * 2 ** attempt, 60000);
+        const rateLimited = lastError instanceof GigyaApiError && (lastError.status === 229 || lastError.status === 429);
+        const rateLimitDelay = Math.min(30000 * 2 ** attempt, 120000);
+        const minimumDelay = rateLimited ? rateLimitDelay : exponentialDelay;
         const delayMs =
           lastError instanceof GigyaApiError && lastError.retryAfterMs !== undefined
-            ? Math.max(lastError.retryAfterMs, exponentialDelay)
-            : exponentialDelay;
+            ? Math.max(lastError.retryAfterMs, minimumDelay)
+            : minimumDelay;
         this.logger.warn(`Gigya API call failed; retrying in ${delayMs / 1000} second(s) (attempt ${attempt + 2}/${retries + 1}).`);
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       }
