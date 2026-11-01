@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge BlueAir Mini Restful",
   "name": "homebridge-blueair-mini-restful",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Homebridge plugin for Blueair purifiers, including Mini Restful fan and night-light controls",
   "license": "Apache-2.0",
   "repository": {

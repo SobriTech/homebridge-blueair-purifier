@@ -91,6 +91,7 @@
        pluginConfig.push({});
      }
      let configuration = pluginConfig[0];
+     let configForm;
 
      // Helper funcion to contol debug messages
      function debugLog(s) {
@@ -99,7 +100,7 @@
        }
      }
 
-     debugLog(`Plugin Config:\n${JSON.stringify(configuration, null, 2)}`);
+     debugLog('Plugin configuration loaded.');
      configuration = await homebridge.request('/mergeToDefault', { config: configuration });
 
      /*********************************************************************
@@ -122,8 +123,21 @@
      function filterOutDefaults(object, defaults) {
 
        function deleteEmptyObjects(object) {
+         if (Array.isArray(object)) {
+           for (let i = object.length - 1; i >= 0; i--) {
+             const value = object[i];
+             if (!value || typeof value !== 'object') {
+               continue;
+             }
+             deleteEmptyObjects(value);
+             if (Object.keys(value).length === 0) {
+               object.splice(i, 1);
+             }
+           }
+           return object;
+         }
          for (const [k, v] of Object.entries(object)) {
-           if (!v || typeof v !== 'object' || v === null) {
+           if (!v || typeof v !== 'object') {
              continue;
            }
            deleteEmptyObjects(v);
@@ -153,14 +167,24 @@
 
      /*********************************************************************
       * createForm
-      * Update the plugin config GUI. Does not save to config.json
+      * Update the plugin config GUI. Changes are staged and saved on submit.
       */
      function createForm(configSchema, configuration) {
-       const configForm = homebridge.createForm(configSchema, configuration);
+       if (configForm) {
+         configForm.end();
+       }
+       configForm = homebridge.createForm(configSchema, configuration, 'Save');
        configForm.onChange(async (changes) => {
          changes = filterOutDefaults(changes, defaultConfig);
-         debugLog(`[createForm] Config changes:\n${JSON.stringify(changes, null, 2)}`);
+         debugLog('[createForm] Plugin configuration changes staged.');
          await homebridge.updatePluginConfig([changes]);
+       });
+       configForm.onSubmit(async (changes) => {
+         const filteredConfig = filterOutDefaults(changes, defaultConfig);
+         await homebridge.updatePluginConfig([filteredConfig]);
+         await homebridge.savePluginConfig();
+         configuration = changes;
+         homebridge.toast.success('Settings saved');
        });
      }
 
@@ -182,7 +206,7 @@
        console.info(`Request login...`);
        try {
           const devices = await homebridge.request('/discover', { username, password, region });
-          debugLog(`Discovered devices:\n${JSON.stringify(devices, null, 2)}`);
+          debugLog(`Discovered ${devices?.length ?? 0} device(s).`);
           const table = document.getElementById('discoverTable').getElementsByTagName('tbody')[0];
           table.innerHTML = '';
 

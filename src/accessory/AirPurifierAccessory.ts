@@ -1,6 +1,8 @@
 import { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
 import { BlueAirPlatform } from '../platform';
 import { BlueAirDevice } from '../device/BlueAirDevice';
+import { AutoModeStrategy, getAutoModeStrategy } from '../device/AutoModeStrategy';
+import { BlueAirDeviceType } from '../device/BlueAirDeviceType';
 import { DeviceConfig } from '../platformUtils';
 import { FullBlueAirDeviceState } from '../api/BlueAirAwsApi';
 
@@ -13,6 +15,7 @@ export class AirPurifierAccessory {
   private temperatureService?: Service;
   private germShieldService?: Service;
   private nightModeService?: Service;
+  private autoModeStrategy: AutoModeStrategy;
 
   constructor(
     protected readonly platform: BlueAirPlatform,
@@ -20,6 +23,9 @@ export class AirPurifierAccessory {
     protected readonly device: BlueAirDevice,
     protected readonly configDev: DeviceConfig,
   ) {
+    this.autoModeStrategy = getAutoModeStrategy(this.device.deviceType);
+    this.cleanupMiniRestfulLightServices();
+
     this.accessory
       .getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, 'BlueAir')
@@ -35,7 +41,7 @@ export class AirPurifierAccessory {
     this.service.getCharacteristic(this.platform.Characteristic.CurrentAirPurifierState).onGet(this.getCurrentAirPurifierState.bind(this));
 
     const targetStateCharacteristic = this.service.getCharacteristic(this.platform.Characteristic.TargetAirPurifierState);
-    if (this.device.state.automode !== undefined) {
+    if (this.autoModeStrategy.isAvailable(this.device.state)) {
       targetStateCharacteristic.onGet(this.getTargetAirPurifierState.bind(this)).onSet(this.setTargetAirPurifierState.bind(this));
     } else {
       targetStateCharacteristic
@@ -174,6 +180,7 @@ export class AirPurifierAccessory {
           updateState = true;
           break;
         case 'automode':
+        case 'apsubmode':
           this.service.updateCharacteristic(this.platform.Characteristic.TargetAirPurifierState, this.getTargetAirPurifierState());
           break;
         case 'childlock':
@@ -185,11 +192,14 @@ export class AirPurifierAccessory {
           this.service.updateCharacteristic(this.platform.Characteristic.CurrentAirPurifierState, this.getCurrentAirPurifierState());
           break;
         case 'filterusage':
-          this.service.updateCharacteristic(this.platform.Characteristic.FilterChangeIndication, this.getFilterChangeIndication());
-          this.service.updateCharacteristic(this.platform.Characteristic.FilterLifeLevel, this.getFilterLifeLevel());
+          this.filterMaintenanceService?.updateCharacteristic(
+            this.platform.Characteristic.FilterChangeIndication,
+            this.getFilterChangeIndication(),
+          );
+          this.filterMaintenanceService?.updateCharacteristic(this.platform.Characteristic.FilterLifeLevel, this.getFilterLifeLevel());
           break;
         case 'temperature':
-          this.service.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.getCurrentTemperature());
+          this.temperatureService?.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.getCurrentTemperature());
           break;
         case 'brightness':
           this.ledService?.updateCharacteristic(this.platform.Characteristic.On, this.getLedOn());
@@ -199,7 +209,7 @@ export class AirPurifierAccessory {
           this.nightLightService?.updateCharacteristic(this.platform.Characteristic.On, this.getNightLightOn());
           this.nightLightService?.updateCharacteristic(this.platform.Characteristic.Brightness, this.getNightLightBrightness());
           break;
-        case 'pm25':
+        case 'pm2_5':
           this.airQualityService?.updateCharacteristic(this.platform.Characteristic.PM2_5Density, this.getPM2_5Density());
           updateAirQuality = true;
           break;
@@ -246,7 +256,7 @@ export class AirPurifierAccessory {
 
   getCurrentAirPurifierState(): CharacteristicValue {
     if (this.device.state.standby === false) {
-      return this.device.state.automode && this.device.state.fanspeed === 0
+      return this.autoModeStrategy.isAuto(this.device.state) && this.device.state.fanspeed === 0
         ? this.platform.Characteristic.CurrentAirPurifierState.IDLE
         : this.platform.Characteristic.CurrentAirPurifierState.PURIFYING_AIR;
     }
@@ -255,14 +265,15 @@ export class AirPurifierAccessory {
   }
 
   getTargetAirPurifierState(): CharacteristicValue {
-    return this.device.state.automode
+    return this.autoModeStrategy.isAuto(this.device.state)
       ? this.platform.Characteristic.TargetAirPurifierState.AUTO
       : this.platform.Characteristic.TargetAirPurifierState.MANUAL;
   }
 
   async setTargetAirPurifierState(value: CharacteristicValue) {
     this.platform.log.debug(`[${this.device.name}] Setting target air purifier state to ${value}`);
-    await this.device.setState('automode', value === this.platform.Characteristic.TargetAirPurifierState.AUTO);
+    const mode = this.autoModeStrategy.setAuto(value === this.platform.Characteristic.TargetAirPurifierState.AUTO);
+    await this.device.setState(mode.attribute, mode.value);
   }
 
   getLockPhysicalControls(): CharacteristicValue {
@@ -277,7 +288,26 @@ export class AirPurifierAccessory {
   }
 
   private isMiniRestful(): boolean {
-    return this.device.state.nlstepless !== undefined;
+    return this.device.deviceType === BlueAirDeviceType.MINI_RESTFUL;
+  }
+
+  private cleanupMiniRestfulLightServices(): void {
+    if (!this.isMiniRestful()) {
+      return;
+    }
+
+    for (const service of [...this.accessory.services]) {
+      if (service.UUID !== this.platform.Service.Lightbulb.UUID) {
+        continue;
+      }
+      const preserveNightLight = service.subtype === 'NightLight';
+      const preserveLed = service.subtype === 'Led' && this.configDev.led === true;
+      if (preserveNightLight || preserveLed) {
+        continue;
+      }
+      this.accessory.removeService(service);
+      this.platform.log.info(`[${this.device.name}] Removed stale cached light service.`);
+    }
   }
 
   private miniRestfulFanSpeedToHomeKit(deviceSpeed: number): number {
@@ -335,8 +365,9 @@ export class AirPurifierAccessory {
       await this.device.setState('standby', false);
     }
 
-    if (speed > 0 && this.device.state.automode === true) {
-      await this.device.setState('automode', false);
+    const manualMode = this.autoModeStrategy.setAuto(false);
+    if (speed > 0 && manualMode.attribute in this.device.state && this.device.state[manualMode.attribute] !== manualMode.value) {
+      await this.device.setState(manualMode.attribute, manualMode.value);
     }
 
     await this.device.setState('fanspeed', speed);
@@ -349,7 +380,7 @@ export class AirPurifierAccessory {
   }
 
   getFilterLifeLevel(): CharacteristicValue {
-    return 100 - (this.device.state.filterusage || 0);
+    return Math.min(100, Math.max(0, 100 - (this.device.state.filterusage || 0)));
   }
 
   getCurrentTemperature(): CharacteristicValue {

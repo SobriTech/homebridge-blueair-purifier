@@ -3,7 +3,7 @@ import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { Config, defaultConfig } from './platformUtils';
 import { defaultsDeep } from 'lodash';
-import BlueAirAwsApi, { BlueAirApiError, BlueAirDeviceStatus } from './api/BlueAirAwsApi';
+import BlueAirAwsApi, { BlueAirApiError, BlueAirDeviceStatus, isRateLimitStatus } from './api/BlueAirAwsApi';
 import { BlueAirDevice } from './device/BlueAirDevice';
 import { AirPurifierAccessory } from './accessory/AirPurifierAccessory';
 import EventEmitter from 'events';
@@ -113,8 +113,9 @@ export class BlueAirPlatform extends EventEmitter implements DynamicPlatformPlug
       return true;
     } catch (error) {
       this.log.error('Error getting initial device states:', error);
-      if (error instanceof BlueAirApiError && error.status === 429) {
-        const retryDelay = Math.min(5000 * 2 ** this.initialStateRetryCount, 60000);
+      if (error instanceof BlueAirApiError && isRateLimitStatus(error.status)) {
+        const backoffDelay = Math.min(30000 * 2 ** this.initialStateRetryCount, 120000);
+        const retryDelay = error.retryAfterMs === undefined ? backoffDelay : Math.max(error.retryAfterMs, backoffDelay);
         this.initialStateRetryCount++;
         this.log.warn(`Initial device-state loading was rate-limited; retrying in ${retryDelay / 1000} seconds.`);
         this.polling = setTimeout(async () => {
@@ -139,6 +140,7 @@ export class BlueAirPlatform extends EventEmitter implements DynamicPlatformPlug
     }
 
     const blueAirDevice = new BlueAirDevice(device);
+    this.log.info(`[${device.name}] Device type is ${blueAirDevice.deviceType}`);
     this.devices.push(blueAirDevice);
 
     blueAirDevice.on('setState', async ({ id, name, attribute, value }) => {

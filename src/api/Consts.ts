@@ -65,7 +65,9 @@ export type BlueAirDeviceStatusResponse = {
     configuration: {
       di: {
         name: string;
+        sku?: string;
       };
+      ds?: Record<string, { sn?: string[] }>;
     };
     sensordata: {
       n: string;
@@ -80,3 +82,11 @@ export type BlueAirDeviceStatusResponse = {
     }[];
   }[];
 };
+
+export type BlueAirTelemetryResponse = {
+  sensors: string[];
+  datapoints: (string | null)[][];
+  start: string;
+  end: string;
+  did: string;
+}[];
