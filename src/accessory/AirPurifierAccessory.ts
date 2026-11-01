@@ -296,6 +296,7 @@ export class AirPurifierAccessory {
       return;
     }
 
+    let removedServices = 0;
     for (const service of [...this.accessory.services]) {
       if (service.UUID !== this.platform.Service.Lightbulb.UUID) {
         continue;
@@ -306,7 +307,15 @@ export class AirPurifierAccessory {
         continue;
       }
       this.accessory.removeService(service);
-      this.platform.log.info(`[${this.device.name}] Removed stale cached light service.`);
+      removedServices++;
+      this.platform.log.info(`[${this.device.name}] Removed stale cached light service "${service.displayName}".`);
+    }
+
+    if (removedServices > 0) {
+      // removeService updates the live HAP accessory, but dynamic-platform cache
+      // changes are only written to disk when Homebridge receives an explicit update.
+      this.platform.api.updatePlatformAccessories([this.accessory]);
+      this.platform.log.info(`[${this.device.name}] Persisted Mini Restful light-service cleanup.`);
     }
   }
 
